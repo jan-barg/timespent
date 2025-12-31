@@ -7,7 +7,9 @@
   export let editActivity: Activity | null = null;
 
   let name = '';
+  let activityType: 'time' | 'completion' = 'time';
   let avgHoursPerDay = 1;
+  let targetPerWeek = 1;
   let startDate = '';
   let endDate = '';
   
@@ -15,17 +17,22 @@
   let editingLogId: string | null = null;
   let newLogDate = '';
   let newLogHours = 1;
+  let newLogCount = 1;
 
   // Pre-fill form when editing
   $: if (isOpen && editActivity) {
     name = editActivity.name;
-    avgHoursPerDay = editActivity.avgHoursPerDay;
+    activityType = editActivity.activityType || 'time';
+    avgHoursPerDay = editActivity.avgHoursPerDay ?? 1;
+    targetPerWeek = editActivity.targetPerWeek ?? 1;
     startDate = editActivity.startDate;
     endDate = editActivity.endDate;
   } else if (isOpen && !editActivity) {
     // Reset form when adding new
     name = '';
+    activityType = 'time';
     avgHoursPerDay = 1;
+    targetPerWeek = 1;
     startDate = '';
     endDate = '';
   }
@@ -57,29 +64,47 @@
   function handleEditLog(log: TimeLog) {
     editingLogId = log.id;
     newLogDate = log.date;
-    newLogHours = log.hoursSpent;
+    newLogHours = log.hoursSpent ?? 1;
+    newLogCount = log.count ?? (log.completed ? 1 : 0);
   }
 
   function handleSaveLog() {
-    if (!editActivity || !newLogDate || newLogHours <= 0) return;
+    if (!editActivity || !newLogDate) return;
+
+    // Validate depending on activity type
+    if (editActivity.activityType === 'time') {
+      if (newLogHours <= 0) return;
+    } else {
+      if (newLogCount <= 0) return;
+    }
 
     if (editingLogId) {
       // Update existing log
       logs.update(logs => 
         logs.map(log => 
           log.id === editingLogId 
-            ? { ...log, date: newLogDate, hoursSpent: newLogHours }
+            ? (editActivity.activityType === 'completion'
+                ? { ...log, date: newLogDate, completed: true, count: newLogCount }
+                : { ...log, date: newLogDate, hoursSpent: newLogHours })
             : log
         )
       );
     } else {
       // Create new log
-      const newLog: TimeLog = {
-        id: generateId(),
-        activityId: editActivity.id,
-        date: newLogDate,
-        hoursSpent: newLogHours
-      };
+      const newLog: TimeLog = editActivity.activityType === 'completion'
+        ? {
+            id: generateId(),
+            activityId: editActivity.id,
+            date: newLogDate,
+            completed: true,
+            count: newLogCount
+          }
+        : {
+            id: generateId(),
+            activityId: editActivity.id,
+            date: newLogDate,
+            hoursSpent: newLogHours
+          };
       logs.update(logs => [...logs, newLog]);
     }
 
@@ -87,12 +112,14 @@
     editingLogId = null;
     newLogDate = '';
     newLogHours = 1;
+    newLogCount = 1;
   }
 
   function handleCancelLogEdit() {
     editingLogId = null;
     newLogDate = '';
     newLogHours = 1;
+    newLogCount = 1;
   }
 
   function handleDeleteLog(logId: string) {
@@ -106,11 +133,18 @@
     editingLogId = null;
     newLogDate = getTodayDate();
     newLogHours = 1;
+    newLogCount = 1;
   }
 
   function handleSubmit() {
-    if (!name.trim() || !startDate || !endDate || avgHoursPerDay <= 0) {
+    if (!name.trim() || !startDate || !endDate) {
       return;
+    }
+
+    if (activityType === 'time') {
+      if (!(avgHoursPerDay > 0)) return;
+    } else {
+      if (!(targetPerWeek > 0)) return;
     }
 
     if (editActivity) {
@@ -118,7 +152,9 @@
       const updatedActivity: Activity = {
         ...editActivity,
         name: name.trim(),
-        avgHoursPerDay,
+        activityType,
+        avgHoursPerDay: activityType === 'time' ? avgHoursPerDay : undefined,
+        targetPerWeek: activityType === 'completion' ? targetPerWeek : undefined,
         startDate,
         endDate
       };
@@ -130,7 +166,9 @@
       const newActivity: Activity = {
         id: generateId(),
         name: name.trim(),
-        avgHoursPerDay,
+        activityType,
+        avgHoursPerDay: activityType === 'time' ? avgHoursPerDay : undefined,
+        targetPerWeek: activityType === 'completion' ? targetPerWeek : undefined,
         startDate,
         endDate
       };
@@ -139,7 +177,9 @@
 
     // Reset form
     name = '';
+    activityType = 'time';
     avgHoursPerDay = 1;
+    targetPerWeek = 1;
     startDate = '';
     endDate = '';
 
@@ -176,36 +216,59 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="modal-title"
+    tabindex="0"
   >
-    <div class="modal-content" on:click|stopPropagation>
-      <h2 id="modal-title" class="modal-title">{editActivity ? 'Edit Time Goal' : 'Add Time Goal'}</h2>
+    <div class="modal-content" role="document">
+      <h2 id="modal-title" class="modal-title">{editActivity ? 'Edit Goal' : 'Add Goal'}</h2>
       
       <div class="modal-body">
       <form on:submit|preventDefault={handleSubmit} class="form">
         <div class="form-group">
           <label for="name">Activity Name</label>
-          <input
+            <input
             id="name"
             type="text"
             bind:value={name}
             placeholder="e.g., Exercise, Reading"
             required
-            autofocus
           />
         </div>
 
         <div class="form-group">
-          <label for="avgHoursPerDay">Hours per Day</label>
-          <input
-            id="avgHoursPerDay"
-            type="number"
-            bind:value={avgHoursPerDay}
-            min="0.1"
-            step="0.1"
-            placeholder="1.5"
-            required
-          />
+          <label for="activityType">Activity Type</label>
+          <select id="activityType" bind:value={activityType}>
+            <option value="time">Time-based (hours)</option>
+            <option value="completion">Completion-based (count/week)</option>
+          </select>
         </div>
+
+        {#if activityType === 'time'}
+          <div class="form-group">
+            <label for="avgHoursPerDay">Hours per Day</label>
+            <input
+              id="avgHoursPerDay"
+              type="number"
+              bind:value={avgHoursPerDay}
+              min="0.1"
+              step="0.1"
+              placeholder="1.5"
+              required
+            />
+          </div>
+        {:else}
+          <div class="form-group">
+            <label for="targetPerWeek">Target per Week</label>
+            <input
+              id="targetPerWeek"
+              type="number"
+              bind:value={targetPerWeek}
+              min="1"
+              step="1"
+              placeholder="3"
+              required
+            />
+          </div>
+        {/if}
 
         <div class="form-group">
           <label for="startDate">Start Date</label>
@@ -240,7 +303,7 @@
       {#if editActivity}
         <div class="time-logs-section">
           <div class="section-header">
-            <h3 class="section-title">Time Logs</h3>
+            <h3 class="section-title">{editActivity.activityType === 'completion' ? 'Completions' : 'Time Logs'}</h3>
             <button type="button" class="btn btn-add-log" on:click={handleAddNewLog}>
               + Add Log
             </button>
@@ -254,14 +317,25 @@
                   bind:value={newLogDate}
                   class="log-input"
                 />
-                <input
-                  type="number"
-                  bind:value={newLogHours}
-                  min="0.1"
-                  step="0.1"
-                  placeholder="Hours"
-                  class="log-input"
-                />
+                {#if editActivity.activityType === 'time'}
+                  <input
+                    type="number"
+                    bind:value={newLogHours}
+                    min="0.1"
+                    step="0.1"
+                    placeholder="Hours"
+                    class="log-input"
+                  />
+                {:else}
+                  <input
+                    type="number"
+                    bind:value={newLogCount}
+                    min="1"
+                    step="1"
+                    placeholder="Count"
+                    class="log-input"
+                  />
+                {/if}
                 <div class="log-form-actions">
                   <button type="button" class="btn btn-small btn-save" on:click={handleSaveLog}>
                     Save
@@ -276,7 +350,7 @@
 
           {#if activityLogs.length === 0 && !newLogDate}
             <div class="empty-logs">
-              <p>No time logs yet. Click "Add Log" to add one.</p>
+              <p>{editActivity.activityType === 'completion' ? 'No completions yet. Click "Add Log" to add one.' : 'No time logs yet. Click "Add Log" to add one.'}</p>
             </div>
           {:else}
             <div class="logs-list">
@@ -289,14 +363,25 @@
                         bind:value={newLogDate}
                         class="log-input"
                       />
-                      <input
-                        type="number"
-                        bind:value={newLogHours}
-                        min="0.1"
-                        step="0.1"
-                        placeholder="Hours"
-                        class="log-input"
-                      />
+                      {#if editActivity.activityType === 'time'}
+                        <input
+                          type="number"
+                          bind:value={newLogHours}
+                          min="0.1"
+                          step="0.1"
+                          placeholder="Hours"
+                          class="log-input"
+                        />
+                      {:else}
+                        <input
+                          type="number"
+                          bind:value={newLogCount}
+                          min="1"
+                          step="1"
+                          placeholder="Count"
+                          class="log-input"
+                        />
+                      {/if}
                       <div class="log-form-actions">
                         <button type="button" class="btn btn-small btn-save" on:click={handleSaveLog}>
                           Save
@@ -311,7 +396,11 @@
                   <div class="log-item">
                     <div class="log-info">
                       <span class="log-date">{new Date(log.date).toLocaleDateString()}</span>
-                      <span class="log-hours">{log.hoursSpent.toFixed(1)} hours</span>
+                      {#if editActivity.activityType === 'time'}
+                        <span class="log-hours">{(log.hoursSpent ?? 0).toFixed(1)} hours</span>
+                      {:else}
+                        <span class="log-hours">{log.count ?? (log.completed ? 1 : 0)} completion(s)</span>
+                      {/if}
                     </div>
                     <div class="log-actions">
                       <button type="button" class="btn-icon-small" on:click={() => handleEditLog(log)} title="Edit" aria-label="Edit log">

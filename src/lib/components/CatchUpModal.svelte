@@ -86,7 +86,12 @@
 
   function calculateTotalHoursLogged(): number {
     const activityLogs = logs.filter(log => log.activityId === activity.id);
-    return activityLogs.reduce((sum, log) => sum + log.hoursSpent, 0);
+    return activityLogs.reduce((sum, log) => sum + (log.hoursSpent ?? 0), 0);
+  }
+
+  function calculateTotalCompletions(): number {
+    const activityLogs = logs.filter(log => log.activityId === activity.id);
+    return activityLogs.reduce((sum, log) => sum + (log.count ?? (log.completed ? 1 : 0)), 0);
   }
 
   function calculateDaysElapsed(): number {
@@ -137,7 +142,19 @@
     
     // Divide hours behind by days until catch-up, then add to average hours per day
     const extraHoursPerDay = hoursBehind / daysUntilCatchUp;
-    return activity.avgHoursPerDay + extraHoursPerDay;
+    return (activity.avgHoursPerDay ?? 0) + extraHoursPerDay;
+  }
+
+
+  function calculateScheduledCompletionsUntil(dateString: string): number {
+    if (!dateString) return 0;
+    const start = normalizeDate(activity.startDate);
+    const target = normalizeDate(dateString);
+    if (target < start) return 0;
+    const days = daysBetween(start, target); // inclusive
+    // weeks: 1..7 -> 1 week, 8..14 -> 2 weeks, etc.
+    const weeks = Math.floor((days - 1) / 7) + 1;
+    return weeks * (activity.targetPerWeek ?? 0);
   }
 
   function handleBackdropClick(event: MouseEvent) {
@@ -153,20 +170,25 @@
   }
 
   $: totalDays = calculateTotalDays();
-  $: totalHoursPlanned = totalDays * activity.avgHoursPerDay;
-  $: totalHoursLogged = calculateTotalHoursLogged();
-  $: hoursBehindAhead = totalHoursLogged - (calculateDaysElapsed() * activity.avgHoursPerDay);
   $: daysElapsed = calculateDaysElapsed();
+  $: totalHoursLogged = calculateTotalHoursLogged();
+  $: totalCompletions = calculateTotalCompletions();
+  $: isTime = (activity && (activity.activityType === 'time' || !activity.activityType));
+  $: totalHoursPlanned = isTime ? totalDays * (activity.avgHoursPerDay ?? 0) : 0;
+  $: hoursBehindAhead = isTime ? (totalHoursLogged - (calculateDaysElapsed() * (activity.avgHoursPerDay ?? 0))) : 0;
   $: avgHoursPerDayLogged = daysElapsed > 0 ? totalHoursLogged / daysElapsed : 0;
-  
-  // Explicitly depend on catchUpDate to ensure recalculation when date changes
   $: daysUntilCatchUp = catchUpDate ? calculateDaysUntilCatchUp() : 0;
+  
+  $: weeksElapsed = Math.floor(totalDays / 7) + 1;
+  $: totalScheduledCompletions = !isTime ? weeksElapsed * (activity.targetPerWeek ?? 0) : 0;
+  $: completionsBehind = !isTime ? Math.max(0, totalScheduledCompletions - totalCompletions) : 0;
+  $: scheduledByCatchUpDate = !isTime && catchUpDate ? calculateScheduledCompletionsUntil(catchUpDate) : 0;
   
   // Recalculate hours per day needed when catchUpDate or hoursBehindAhead changes
   $: if (catchUpDate && hoursBehindAhead < 0 && daysUntilCatchUp > 0) {
     const hoursBehind = Math.abs(hoursBehindAhead);
     const extraHoursPerDay = hoursBehind / daysUntilCatchUp;
-    hoursPerDayNeeded = activity.avgHoursPerDay + extraHoursPerDay;
+    hoursPerDayNeeded = (activity.avgHoursPerDay ?? 0) + extraHoursPerDay;
   } else {
     hoursPerDayNeeded = 0;
   }
@@ -182,30 +204,46 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="modal-title"
+    tabindex="0"
   >
-    <div class="modal-content" on:click|stopPropagation>
+    <div class="modal-content" role="document">
       <h2 id="modal-title" class="modal-title">Catch Up: {activity.name}</h2>
       
       <div class="catchup-info">
         <div class="info-section">
-          <div class="info-row">
-            <span class="info-label">Total hours planned:</span>
-            <span class="info-value">{totalHoursPlanned.toFixed(1)} hours</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Total hours logged:</span>
-            <span class="info-value">{totalHoursLogged.toFixed(1)} hours</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Hours {hoursBehindAhead >= 0 ? 'ahead' : 'behind'}:</span>
-            <span class="info-value {hoursBehindAhead >= 0 ? 'positive' : 'negative'}">
-              {Math.abs(hoursBehindAhead).toFixed(1)} hours
-            </span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Average hours/day logged:</span>
-            <span class="info-value">{avgHoursPerDayLogged.toFixed(2)} hrs/day</span>
-          </div>
+                  {#if isTime}
+            <div class="info-row">
+              <span class="info-label">Total hours planned:</span>
+              <span class="info-value">{totalHoursPlanned.toFixed(1)} hours</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Total hours logged:</span>
+              <span class="info-value">{totalHoursLogged.toFixed(1)} hours</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Hours {hoursBehindAhead >= 0 ? 'ahead' : 'behind'}:</span>
+              <span class="info-value {hoursBehindAhead >= 0 ? 'positive' : 'negative'}">
+                {Math.abs(hoursBehindAhead).toFixed(1)} hours
+              </span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Average hours/day logged:</span>
+              <span class="info-value">{avgHoursPerDayLogged.toFixed(2)} hrs/day</span>
+            </div>
+                  {:else}
+            <div class="info-row">
+              <span class="info-label">Total completions expected:</span>
+              <span class="info-value">{totalScheduledCompletions} completions</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Total completions logged:</span>
+              <span class="info-value">{totalCompletions} completions</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Missed so far:</span>
+              <span class="info-value negative">{completionsBehind} completions</span>
+            </div>
+          {/if}
         </div>
 
         <div class="catchup-section">
@@ -228,25 +266,40 @@
                   Please select today or a future date to calculate catch-up requirements.
                 </div>
               </div>
-            {:else if hoursBehindAhead < 0}
-              <div class="catchup-result">
-                <div class="result-label">Average hours per day needed to catch up:</div>
-                <div class="result-value">{hoursPerDayNeeded.toFixed(2)} hrs/day</div>
-                <div class="result-details">
-                  {hoursBehind.toFixed(1)} hours behind over {daysUntilCatchUp} days
-                </div>
-              </div>
             {:else}
-              <div class="catchup-result success">
-                <div class="result-label">You're on track!</div>
-                <div class="result-details">
-                  {#if hoursBehindAhead > 0}
-                    You're ahead by {hoursBehindAhead.toFixed(1)} hours
-                  {:else}
-                    You're meeting your target
-                  {/if}
+              {#if isTime}
+                {#if hoursBehindAhead < 0}
+                  <div class="catchup-result">
+                    <div class="result-label">Average hours per day needed to catch up:</div>
+                    <div class="result-value">{hoursPerDayNeeded.toFixed(2)} hrs/day</div>
+                    <div class="result-details">
+                      {hoursBehind.toFixed(1)} hours behind over {daysUntilCatchUp} days
+                    </div>
+                  </div>
+                {:else}
+                  <div class="catchup-result success">
+                    <div class="result-label">You're on track!</div>
+                    <div class="result-details">
+                      {#if hoursBehindAhead > 0}
+                        You're ahead by {hoursBehindAhead.toFixed(1)} hours
+                      {:else}
+                        You're meeting your target
+                      {/if}
+                    </div>
+                  </div>
+                {/if}
+              {:else}
+                <!-- completion-based: show expected vs logged up to target date and missed count -->
+                <div class="catchup-result">
+                  <div class="result-label">Completions expected by {catchUpDate}:</div>
+                  <div class="result-value">{scheduledByCatchUpDate} completion(s)</div>
+                  <div class="result-details">
+                    Total completions logged: {totalCompletions}
+                    <br />
+                    Missed: {Math.max(0, scheduledByCatchUpDate - totalCompletions)} completion(s)
+                  </div>
                 </div>
-              </div>
+              {/if}
             {/if}
           {/if}
         </div>
@@ -416,9 +469,7 @@
     margin-bottom: 0.25rem;
   }
 
-  .catchup-result.success .result-value {
-    color: #4ade80;
-  }
+  /* success result value color adjusted inline where used */
 
   .result-details {
     font-size: 0.875rem;
@@ -513,9 +564,7 @@
       color: #646cff;
     }
 
-    .catchup-result.success .result-value {
-      color: #16a34a;
-    }
+    /* success result value color adjusted inline where used */
 
     .result-details {
       color: rgba(0, 0, 0, 0.6);

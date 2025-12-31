@@ -5,6 +5,7 @@
   import AddGoalModal from './lib/components/AddGoalModal.svelte';
   import LogTimeModal from './lib/components/LogTimeModal.svelte';
   import ActivityCard from './lib/components/ActivityCard.svelte';
+  import YearProgressBar from './lib/components/YearProgressBar.svelte';
 
   let showAddGoalModal = false;
   let showLogTimeModal = false;
@@ -28,6 +29,7 @@
         {
           id: '1',
           name: 'Exercise',
+          activityType: 'time',
           avgHoursPerDay: 1.5,
           startDate: '2024-01-01',
           endDate: '2024-12-31'
@@ -35,6 +37,7 @@
         {
           id: '2',
           name: 'Reading',
+          activityType: 'time',
           avgHoursPerDay: 1,
           startDate: '2024-01-01',
           endDate: '2024-12-31'
@@ -42,6 +45,7 @@
         {
           id: '3',
           name: 'Coding Practice',
+          activityType: 'time',
           avgHoursPerDay: 2,
           startDate: '2024-01-01',
           endDate: '2024-12-31'
@@ -66,6 +70,7 @@
 </script>
 
 <main>
+  <YearProgressBar />
   <header class="header">
     <button class="btn btn-primary" on:click={() => showLogTimeModal = true}>
       Log Time

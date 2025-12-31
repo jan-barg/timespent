@@ -22,34 +22,66 @@
 
   function calculateTotalHoursLogged(): number {
     const activityLogs = logs.filter(log => log.activityId === activity.id);
-    return activityLogs.reduce((sum, log) => sum + log.hoursSpent, 0);
+    return activityLogs.reduce((sum, log) => sum + (log.hoursSpent ?? 0), 0);
+  }
+
+  // For completion-based activities: count completions
+  function calculateTotalCompletions(): number {
+    const activityLogs = logs.filter(log => log.activityId === activity.id);
+    return activityLogs.reduce((sum, log) => sum + (log.count ?? (log.completed ? 1 : 0)), 0);
+  }
+
+  function calculateCompletionsThisWeek(): number {
+    const start = new Date(activity.startDate);
+    const today = new Date();
+    // days since start
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const daysSinceStart = Math.floor((today.getTime() - start.getTime()) / msPerDay);
+    const weekIndex = Math.floor(daysSinceStart / 7);
+    const weekStart = new Date(start.getTime() + weekIndex * 7 * msPerDay);
+    const weekEnd = new Date(weekStart.getTime() + 6 * msPerDay);
+
+    const activityLogs = logs.filter(log => log.activityId === activity.id);
+    return activityLogs.reduce((sum, log) => {
+      const d = new Date(log.date);
+      const nd = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      if (nd >= new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate()) && nd <= new Date(weekEnd.getFullYear(), weekEnd.getMonth(), weekEnd.getDate())) {
+        return sum + (log.count ?? (log.completed ? 1 : 0));
+      }
+      return sum;
+    }, 0);
   }
 
   function calculateTotalProgress() {
     const daysElapsed = calculateDaysElapsed();
     const totalHoursLogged = calculateTotalHoursLogged();
-    const totalHoursScheduled = daysElapsed * activity.avgHoursPerDay;
+    if (activity.activityType === 'completion') {
+      const totalCompletions = calculateTotalCompletions();
+      const weeksElapsed = Math.floor(daysElapsed / 7) + 1;
+      const totalScheduled = weeksElapsed * (activity.targetPerWeek ?? 0);
+      const percentage = totalScheduled > 0 ? Math.min((totalCompletions / totalScheduled) * 100, 100) : 0;
+      return { logged: totalCompletions, scheduled: totalScheduled, percentage };
+    }
+
+    const totalHoursScheduled = daysElapsed * (activity.avgHoursPerDay ?? 0);
     const percentage = totalHoursScheduled > 0 ? Math.min((totalHoursLogged / totalHoursScheduled) * 100, 100) : 0;
-    
-    return {
-      logged: totalHoursLogged,
-      scheduled: totalHoursScheduled,
-      percentage
-    };
+    return { logged: totalHoursLogged, scheduled: totalHoursScheduled, percentage };
   }
 
   function calculateAverageProgress() {
     const daysElapsed = calculateDaysElapsed();
     const totalHoursLogged = calculateTotalHoursLogged();
+    if (activity.activityType === 'completion') {
+      const currentWeekCompletions = calculateCompletionsThisWeek();
+      const target = activity.targetPerWeek ?? 0;
+      const percentage = target > 0 ? Math.min((currentWeekCompletions / target) * 100, 100) : 0;
+      return { actual: currentWeekCompletions, target, percentage } as any;
+    }
+
     const actualAvgHoursPerDay = daysElapsed > 0 ? totalHoursLogged / daysElapsed : 0;
-    const targetAvgHoursPerDay = activity.avgHoursPerDay;
+    const targetAvgHoursPerDay = activity.avgHoursPerDay ?? 0;
     const percentage = targetAvgHoursPerDay > 0 ? Math.min((actualAvgHoursPerDay / targetAvgHoursPerDay) * 100, 100) : 0;
-    
-    return {
-      actual: actualAvgHoursPerDay,
-      target: targetAvgHoursPerDay,
-      percentage
-    };
+    return { actual: actualAvgHoursPerDay, target: targetAvgHoursPerDay, percentage };
   }
 
   function handleDelete() {
@@ -68,28 +100,35 @@
   $: totalHoursLogged = logs ? calculateTotalHoursLogged() : 0;
   
   $: if (logs && daysElapsed !== undefined && totalHoursLogged !== undefined) {
-    const scheduled = daysElapsed * activity.avgHoursPerDay;
-    const percentage = scheduled > 0 ? Math.min((totalHoursLogged / scheduled) * 100, 100) : 0;
-    totalProgress = {
-      logged: totalHoursLogged,
-      scheduled,
-      percentage
-    };
+    if (activity.activityType === 'completion') {
+      const totalCompletions = calculateTotalCompletions();
+      const weeksElapsed = Math.floor(daysElapsed / 7) + 1;
+      const scheduled = weeksElapsed * (activity.targetPerWeek ?? 0);
+      const percentage = scheduled > 0 ? Math.min((totalCompletions / scheduled) * 100, 100) : 0;
+      totalProgress = { logged: totalCompletions, scheduled, percentage };
+    } else {
+      const scheduled = daysElapsed * (activity.avgHoursPerDay ?? 0);
+      const percentage = scheduled > 0 ? Math.min((totalHoursLogged / scheduled) * 100, 100) : 0;
+      totalProgress = { logged: totalHoursLogged, scheduled, percentage };
+    }
   } else {
     totalProgress = { logged: 0, scheduled: 0, percentage: 0 };
   }
   
-  $: if (logs && daysElapsed !== undefined && totalHoursLogged !== undefined) {
-    const actual = daysElapsed > 0 ? totalHoursLogged / daysElapsed : 0;
-    const target = activity.avgHoursPerDay;
-    const percentage = target > 0 ? Math.min((actual / target) * 100, 100) : 0;
-    averageProgress = {
-      actual,
-      target,
-      percentage
-    };
+  $: if (logs && daysElapsed !== undefined) {
+    if (activity.activityType === 'completion') {
+      const currentWeek = calculateCompletionsThisWeek();
+      const target = activity.targetPerWeek ?? 0;
+      const percentage = target > 0 ? Math.min((currentWeek / target) * 100, 100) : 0;
+      averageProgress = { actual: currentWeek, target, percentage } as any;
+    } else {
+      const actual = daysElapsed > 0 ? totalHoursLogged / daysElapsed : 0;
+      const target = activity.avgHoursPerDay ?? 0;
+      const percentage = target > 0 ? Math.min((actual / target) * 100, 100) : 0;
+      averageProgress = { actual, target, percentage };
+    }
   } else {
-    averageProgress = { actual: 0, target: activity.avgHoursPerDay, percentage: 0 };
+    averageProgress = activity.activityType === 'completion' ? { actual: 0, target: activity.targetPerWeek ?? 0, percentage: 0 } as any : { actual: 0, target: activity.avgHoursPerDay ?? 0, percentage: 0 };
   }
   
   $: currentProgress = viewMode === 'total' ? totalProgress : averageProgress;
@@ -117,9 +156,11 @@
   {#if viewMode === 'total'}
     <div class="progress-display">
       <div class="progress-values">
-        <span class="value-label">
-          {totalProgress.logged.toFixed(1)} / {totalProgress.scheduled.toFixed(1)} hours
-        </span>
+        {#if activity.activityType === 'completion'}
+          <span class="value-label">{totalProgress.logged} / {totalProgress.scheduled} completions</span>
+        {:else}
+          <span class="value-label">{totalProgress.logged.toFixed(1)} / {totalProgress.scheduled.toFixed(1)} hours</span>
+        {/if}
         <span class="progress-percentage">{totalProgress.percentage.toFixed(0)}%</span>
       </div>
       <div class="progress-container">
@@ -134,9 +175,11 @@
   {:else}
     <div class="progress-display">
       <div class="progress-values">
-        <span class="value-label">
-          {averageProgress.actual.toFixed(1)} / {averageProgress.target.toFixed(1)} hrs/day
-        </span>
+        {#if activity.activityType === 'completion'}
+          <span class="value-label">{averageProgress.actual} / {averageProgress.target} this week</span>
+        {:else}
+          <span class="value-label">{averageProgress.actual.toFixed(1)} / {averageProgress.target.toFixed(1)} hrs/day</span>
+        {/if}
         <span class="progress-percentage">{averageProgress.percentage.toFixed(0)}%</span>
       </div>
       <div class="progress-container">
@@ -150,8 +193,8 @@
     </div>
   {/if}
 
-  <div class="activity-details">
-    <span class="detail-item">Goal: {activity.avgHoursPerDay}h/day</span>
+    <div class="activity-details">
+    <span class="detail-item">Goal: {activity.activityType === 'completion' ? `${activity.targetPerWeek} / week` : `${activity.avgHoursPerDay}h/day`}</span>
     <span class="detail-item">
       {new Date(activity.startDate).toLocaleDateString()} - {new Date(activity.endDate).toLocaleDateString()}
     </span>

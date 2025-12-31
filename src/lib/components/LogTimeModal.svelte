@@ -1,6 +1,6 @@
 <script lang="ts">
   import { activities, logs } from '../stores/activities';
-  import type { TimeLog } from '../types';
+  import type { TimeLog, Activity } from '../types';
 
   export let isOpen: boolean = false;
   export let onClose: () => void;
@@ -8,6 +8,7 @@
   let selectedActivityId = '';
   let hoursSpent = 1;
   let date = '';
+  let completionCount = 1;
 
   // Get today's date in YYYY-MM-DD format
   function getTodayDate(): string {
@@ -23,27 +24,42 @@
     date = getTodayDate();
   }
 
+  $: activitiesList = $activities;
+  $: selectedActivity = activitiesList.find((a: Activity) => a.id === selectedActivityId);
+
   function generateId(): string {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
   }
 
   function handleSubmit() {
-    if (!selectedActivityId || hoursSpent <= 0 || !date) {
-      return;
+    if (!selectedActivityId || !date) return;
+
+    if (selectedActivity?.activityType === 'time') {
+      if (hoursSpent <= 0) return;
+      const newLog: TimeLog = {
+        id: generateId(),
+        activityId: selectedActivityId,
+        hoursSpent,
+        date
+      };
+      logs.update(logs => [...logs, newLog]);
+    } else {
+      // completion-based
+      if (completionCount <= 0) return;
+      const newLog: TimeLog = {
+        id: generateId(),
+        activityId: selectedActivityId,
+        date,
+        completed: true,
+        count: completionCount
+      };
+      logs.update(logs => [...logs, newLog]);
     }
-
-    const newLog: TimeLog = {
-      id: generateId(),
-      activityId: selectedActivityId,
-      hoursSpent,
-      date
-    };
-
-    logs.update(logs => [...logs, newLog]);
 
     // Reset form
     selectedActivityId = '';
     hoursSpent = 1;
+    completionCount = 1;
     onClose();
   }
 
@@ -66,7 +82,7 @@
     }
   }
 
-  $: activitiesList = $activities;
+  
 </script>
 
 {#if isOpen}
@@ -97,18 +113,46 @@
           </select>
         </div>
 
-        <div class="form-group">
-          <label for="hoursSpent">Hours Spent</label>
-          <input
-            id="hoursSpent"
-            type="number"
-            bind:value={hoursSpent}
-            min="0.1"
-            step="0.1"
-            placeholder="1.5"
-            required
-          />
-        </div>
+        {#if selectedActivity?.activityType === 'time'}
+          <div class="form-group">
+            <label for="hoursSpent">Hours Spent</label>
+            <input
+              id="hoursSpent"
+              type="number"
+              bind:value={hoursSpent}
+              min="0.1"
+              step="0.1"
+              placeholder="1.5"
+              required
+            />
+          </div>
+        {:else if selectedActivity?.activityType === 'completion'}
+          <div class="form-group">
+            <label for="completionCount">Completions</label>
+            <input
+              id="completionCount"
+              type="number"
+              bind:value={completionCount}
+              min="1"
+              step="1"
+              placeholder="1"
+              required
+            />
+          </div>
+        {:else}
+          <div class="form-group">
+            <label for="hoursSpent">Hours / Count</label>
+            <input
+              id="hoursSpent"
+              type="number"
+              bind:value={hoursSpent}
+              min="0.1"
+              step="0.1"
+              placeholder="1.5"
+              required
+            />
+          </div>
+        {/if}
 
         <div class="form-group">
           <label for="date">Date</label>
